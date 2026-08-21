@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { prisma } from "../config/prisma";
+import { mintOrFallback } from "../services/verification.service";
 import { ReviewVerificationInput } from "../types/schemas";
 
 export async function listPendingTranscripts(_req: Request, res: Response) {
@@ -35,10 +36,36 @@ export async function reviewTranscript(req: Request, res: Response) {
   // Approving a transcript is what flips a tutor's overall verified badge —
   // video verification is a separate, additive trust signal, not a gate here.
   if (status === "verified") {
+    // Attempt XRPL NFT mint with deterministic hash fallback.
+    const mintResult = await mintOrFallback({
+      tutorId: existing.userId,
+      courseCode: "BROAD", // transcript-level verification, not course-specific
+      grade: "VERIFIED",
+      university: "ACED",
+      verifiedAt: Math.floor(Date.now() / 1000),
+    });
+
+    // Persist whichever credential proof we got — on-chain tx hash or hash fallback.
+    const updateData: Record<string, unknown> = {
+      isVerifiedTutor: true,
+    };
+
+    await prisma.transcriptVerification.update({
+      where: { id },
+      data: {
+        credentialNftTxHash: mintResult.xrplTxHash,
+        credentialHash: mintResult.credentialHash,
+      },
+    });
+
     await prisma.user.update({
       where: { id: existing.userId },
-      data: { isVerifiedTutor: true },
+      data: updateData,
     });
+
+    console.log(
+      `[admin] Verification ${id} approved — mint status: ${mintResult.status}`
+    );
   }
 
   return res.json(updated);

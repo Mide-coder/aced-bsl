@@ -120,6 +120,12 @@ model TranscriptVerification {
   reviewedAt   DateTime?
   rejectionReason String?
 
+  // Set when transcript is verified — either an on-chain XRPL tx hash
+  // (credentialNftTxHash) or a deterministic SHA-256 hash of the credential
+  // metadata (credentialHash) as a testnet-failure fallback.
+  credentialNftTxHash String?
+  credentialHash      String?
+
   // A specific course badge can point back to whichever approved transcript
   // backed it, for audit purposes — the courseCode/grade being claimed lives
   // on CredentialNFT itself, since one transcript can back several badges.
