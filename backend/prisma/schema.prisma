@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  student
+  tutor
+}
+
+model User {
+  id       String   @id @default(uuid())
+  // Public-facing identity — never expose real name anywhere in the API.
+  pseudonym String  @unique
+  email     String  @unique
+  passwordHash String
+  role      UserRole @default(student)
+
+  // XRPL testnet wallet tied to this account (holds/receives credential NFTs).
+  xrplWalletAddress String?
+  // NOTE: storing seeds server-side is only acceptable for a hackathon/testnet demo.
+  // In production, never hold user private keys — use a non-custodial signing flow
+  // (e.g. Xumm/Crossmark) instead.
+  xrplWalletSeed    String?
+
+  isVerifiedTutor Boolean @default(false)
+
+  credentials CredentialNFT[]
+
+  createdAt DateTime @default(now())
+
+  @@map("users")
+}
+
+model CredentialNFT {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  courseCode String // e.g. "CSC301"
+  grade      String // e.g. "A"
+  proofUri   String // Cloudinary URL of the verified transcript
+
+  nftokenId     String @unique
+  txHash        String
+  nftokenTaxon  Int    @default(0)
+
+  mintedAt DateTime @default(now())
+
+  @@map("credential_nfts")
+}
