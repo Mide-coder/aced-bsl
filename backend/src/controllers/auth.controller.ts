@@ -2,25 +2,8 @@ import { Request, Response } from "express";
 import { prisma } from "../config/prisma";
 import { hashPassword, verifyPassword } from "../utils/password";
 import { signAccessToken } from "../utils/jwt";
+import { toPublicUser } from "../utils/publicUser";
 import { LoginInput, RegisterInput } from "../types/schemas";
-
-function toPublicUser(user: {
-  id: string;
-  pseudonym: string;
-  email: string;
-  role: string;
-  xrplWalletAddress: string | null;
-  isVerifiedTutor: boolean;
-}) {
-  return {
-    id: user.id,
-    pseudonym: user.pseudonym,
-    email: user.email,
-    role: user.role,
-    xrplWalletAddress: user.xrplWalletAddress,
-    isVerifiedTutor: user.isVerifiedTutor,
-  };
-}
 
 export async function register(req: Request, res: Response) {
   const { pseudonym, email, password, role } = req.body as RegisterInput;
@@ -50,7 +33,11 @@ export async function login(req: Request, res: Response) {
   }
 
   const accessToken = signAccessToken(user.id);
-  return res.json({ accessToken, tokenType: "bearer", user: toPublicUser(user) });
+  return res.json({
+    accessToken,
+    tokenType: "bearer",
+    user: toPublicUser(user),
+  });
 }
 
 export async function me(req: Request, res: Response) {

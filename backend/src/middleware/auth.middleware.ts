@@ -14,16 +14,26 @@ declare global {
         xrplWalletAddress: string | null;
         xrplWalletSeed: string | null;
         isVerifiedTutor: boolean;
+        isAdmin: boolean;
+        hourlyRateKobo: number | null;
+        ratingAvg: number;
+        ratingCount: number;
       };
     }
   }
 }
 
-export async function requireAuth(req: Request, res: Response, next: NextFunction) {
+export async function requireAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
   const header = req.headers.authorization;
 
   if (!header?.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Missing or malformed Authorization header" });
+    return res
+      .status(401)
+      .json({ error: "Missing or malformed Authorization header" });
   }
 
   const token = header.slice("Bearer ".length);
@@ -47,6 +57,10 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     xrplWalletAddress: user.xrplWalletAddress,
     xrplWalletSeed: user.xrplWalletSeed,
     isVerifiedTutor: user.isVerifiedTutor,
+    isAdmin: user.isAdmin,
+    hourlyRateKobo: user.hourlyRateKobo,
+    ratingAvg: user.ratingAvg,
+    ratingCount: user.ratingCount,
   };
 
   next();
