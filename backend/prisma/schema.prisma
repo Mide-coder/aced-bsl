@@ -3,13 +3,41 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "mysql"
   url      = env("DATABASE_URL")
 }
 
 enum UserRole {
   student
   tutor
+}
+
+enum VerificationStatus {
+  pending
+  verified
+  rejected
+}
+
+enum SessionStatus {
+  pending_payment // booked, escrow not yet funded
+  scheduled // escrow funded, waiting for session time
+  completed // tutor confirmed / session happened, escrow released
+  cancelled // cancelled before payment or by mutual agreement, nothing charged
+  refunded // escrow funded then refunded (no-show, dispute resolved for student)
+  disputed // student or tutor flagged an issue, funds held pending resolution
+}
+
+enum PaymentStatus {
+  initialized // Paystack transaction created, awaiting payment
+  escrow_held // payment captured, held by platform, not yet released to tutor
+  released // funds released to tutor after session confirmation
+  refunded // funds returned to student
+  failed
+}
+
+enum CourseInterestType {
+  teaching // tutor: "I can tutor this course"
+  learning // student: "I need help in this course" (their weak course)
 }
 
 model User {
@@ -28,8 +56,24 @@ model User {
   xrplWalletSeed    String?
 
   isVerifiedTutor Boolean @default(false)
+  isAdmin         Boolean @default(false)
 
-  credentials CredentialNFT[]
+  // --- Tutor-facing pricing & reputation (only meaningful when role = tutor) ---
+  // Rate in kobo (NGN smallest unit) — matches Paystack's amount format directly.
+  hourlyRateKobo Int?
+  ratingAvg      Float @default(0)
+  ratingCount    Int   @default(0)
+
+  credentials             CredentialNFT[]
+  transcriptVerifications TranscriptVerification[]
+  videoVerifications      VideoVerification[]
+  courseInterests         CourseInterest[]
+
+  tutorSessions   Session[] @relation("TutorSessions")
+  studentSessions Session[] @relation("StudentSessions")
+
+  reviewsWritten  Review[] @relation("ReviewsWritten")
+  reviewsReceived Review[] @relation("ReviewsReceived")
 
   createdAt DateTime @default(now())
 
@@ -40,6 +84,12 @@ model CredentialNFT {
   id     String @id @default(uuid())
   userId String
   user   User   @relation(fields: [userId], references: [id])
+
+  // Links back to the approved transcript that justified this badge. One
+  // transcript can back several course badges, so this is many-to-one —
+  // mint should be blocked until the linked verification is `verified`.
+  transcriptVerificationId String?
+  transcriptVerification   TranscriptVerification? @relation(fields: [transcriptVerificationId], references: [id])
 
   courseCode String // e.g. "CSC301"
   grade      String // e.g. "A"
@@ -52,4 +102,135 @@ model CredentialNFT {
   mintedAt DateTime @default(now())
 
   @@map("credential_nfts")
+}
+
+model TranscriptVerification {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  // Profile-level document — the tutor's whole transcript, not a claim about
+  // one specific course. Not unique-per-user, so a rejected upload can be
+  // resubmitted; treat the newest row (by createdAt) as the current one.
+  fileUrl  String // Cloudinary URL of the uploaded transcript (via Multer upload)
+  fileType String // mime type, e.g. "application/pdf", "image/png"
+
+  status       VerificationStatus @default(pending)
+  reviewedById String?
+  reviewedAt   DateTime?
+  rejectionReason String?
+
+  // A specific course badge can point back to whichever approved transcript
+  // backed it, for audit purposes — the courseCode/grade being claimed lives
+  // on CredentialNFT itself, since one transcript can back several badges.
+  credentialNFTs CredentialNFT[]
+
+  createdAt DateTime @default(now())
+
+  @@map("transcript_verifications")
+}
+
+model VideoVerification {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  // Profile-level short teaching-proof video — general competency, not tied
+  // to one course. Same resubmission pattern as TranscriptVerification.
+  videoUrl String // Cloudinary URL of the uploaded video (via Multer upload)
+  fileType String // mime type, e.g. "video/mp4", "video/quicktime"
+
+  status       VerificationStatus @default(pending)
+  reviewedById String?
+  reviewedAt   DateTime?
+  rejectionReason String?
+
+  createdAt DateTime @default(now())
+
+  @@map("video_verifications")
+}
+
+model Session {
+  id String @id @default(uuid())
+
+  tutorId   String
+  tutor     User   @relation("TutorSessions", fields: [tutorId], references: [id])
+  studentId String
+  student   User   @relation("StudentSessions", fields: [studentId], references: [id])
+
+  courseCode      String
+  scheduledAt     DateTime
+  durationMinutes Int      @default(60)
+
+  // Snapshot of the tutor's rate at booking time (kobo) — protects both sides
+  // if the tutor changes their listed rate later.
+  priceKobo Int
+
+  status SessionStatus @default(pending_payment)
+
+  payment Payment?
+  review  Review?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tutorId])
+  @@index([studentId])
+  @@map("sessions")
+}
+
+model Payment {
+  id        String  @id @default(uuid())
+  sessionId String  @unique
+  session   Session @relation(fields: [sessionId], references: [id])
+
+  paystackReference String  @unique
+  amountKobo        Int
+  currency          String  @default("NGN")
+  status            PaymentStatus @default(initialized)
+
+  paidAt     DateTime?
+  releasedAt DateTime?
+  refundedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("payments")
+}
+
+model Review {
+  id        String  @id @default(uuid())
+  sessionId String  @unique
+  session   Session @relation(fields: [sessionId], references: [id])
+
+  reviewerId String // the student who booked the session
+  reviewer   User   @relation("ReviewsWritten", fields: [reviewerId], references: [id])
+  revieweeId String // the tutor being reviewed
+  reviewee   User   @relation("ReviewsReceived", fields: [revieweeId], references: [id])
+
+  rating  Int // 1–5
+  comment String?
+
+  createdAt DateTime @default(now())
+
+  @@index([revieweeId])
+  @@map("reviews")
+}
+
+model CourseInterest {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  // Free text for now (e.g. "CSC301") — no catalog table yet, so watch for
+  // near-duplicate typos ("CSC 301" vs "CSC301") until normalization is added.
+  courseCode String
+  type       CourseInterestType
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, courseCode, type])
+  @@index([courseCode, type])
+  @@map("course_interests")
 }

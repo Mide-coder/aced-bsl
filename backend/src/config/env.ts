@@ -2,7 +2,9 @@ import "dotenv/config";
 import { z } from "zod";
 
 const envSchema = z.object({
-  NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+  NODE_ENV: z
+    .enum(["development", "production", "test"])
+    .default("development"),
   PORT: z.coerce.number().default(4000),
 
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
@@ -16,12 +18,24 @@ const envSchema = z.object({
   XRPL_ISSUER_SEED: z.string().optional(),
 
   CORS_ORIGIN: z.string().default("http://localhost:3000"),
+
+  // Cloudinary (transcript + video verification uploads)
+  CLOUDINARY_CLOUD_NAME: z.string().min(1, "CLOUDINARY_CLOUD_NAME is required"),
+  CLOUDINARY_API_KEY: z.string().min(1, "CLOUDINARY_API_KEY is required"),
+  CLOUDINARY_API_SECRET: z.string().min(1, "CLOUDINARY_API_SECRET is required"),
+
+  // Upload limits
+  TRANSCRIPT_MAX_FILE_MB: z.coerce.number().default(10),
+  VIDEO_MAX_FILE_MB: z.coerce.number().default(100),
 });
 
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
-  console.error("Invalid environment variables:", parsed.error.flatten().fieldErrors);
+  console.error(
+    "Invalid environment variables:",
+    parsed.error.flatten().fieldErrors
+  );
   process.exit(1);
 }
 
